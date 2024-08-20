@@ -1,0 +1,9 @@
+name = "GetPotentialComponents"
+uuid = "c3b7d97f-d0a5-41b2-99f5-e2f646e58959"
+authors = ["Maksim Posysoev <37895103+mposysoev@users.noreply.github.com>"]
+version = "0.1.0"
+
+[deps]
+BSON = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0"
+Chemfiles = "46823bd8-5fb3-5f92-9aa0-96921f3dd015"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"

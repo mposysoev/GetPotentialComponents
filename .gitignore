@@ -1,0 +1,7 @@
+dev.ipynb
+*.bson
+*.txt
+*.pdb
+.in
+
+trash/
