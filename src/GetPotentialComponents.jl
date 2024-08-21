@@ -3,6 +3,8 @@ module GetPotentialComponents
 using BSON: @load
 using Flux
 
+export calculate_pair_component, calculate_3body_component
+
 struct G2
     eta::Float64
     rcutoff::Float64
@@ -128,8 +130,65 @@ function calculate_pair_component(
     end
 end
 
-function main()
-    calculate_pair_component("methanol-CG-NN.bson", "output_results.txt", 10.0, 0.1)
+function calculate_3body_component(
+        model_file::String, output_file::String, r_max::Float64, step_size::Float64, separation::Float64)
+    model = load_model(model_file)
+    positions = init_positions_matrix(3)
+
+    num_iter = round(Int, 2 * r_max / step_size)
+    initial_x = positions[3, 1] - r_max  # сохранить начальное значение X
+
+    open(output_file, "w") do io
+        println(io,
+            "# 3-body potential component for $model_file with distance between particles = $(separation) Å")
+        println(io, "# Grid (X,Y) from (-$(r_max), +$(r_max)) to (+$(r_max), -$(r_max))")
+        println(io, "# X, Y, U(r)")
+
+        # scaning particle
+        positions[3, 1] = initial_x  # установить X coordinate
+        positions[3, 2] += r_max  # shift Y coordinate
+
+        # separate two main particles
+        positions[1, 1] -= separation / 2.0
+        positions[2, 1] += separation / 2.0
+
+        for y in 1:num_iter
+            for x in 1:num_iter
+                distance_matrix = init_distance_matrix(positions)
+                g2_matrix = calculate_g2_matrix(distance_matrix, G2_FUNCTIONS_LIST)
+                energy_vector = calculate_system_energy_vector(g2_matrix, model)
+                total_energy = sum(energy_vector)
+                println(io, "$(positions[3, 1]), $(positions[3, 2]), $total_energy")
+
+                # change scaning particle position
+                positions[3, 1] += step_size
+            end
+            # return X coordinate
+            positions[3, 1] = initial_x  # восстановить начальное значение X
+
+            # step for Y coordinate
+            positions[3, 2] -= step_size
+        end
+    end
+end
+
+function main(
+        component_type::String, model_file::String, output_file::String, r_max::Float64,
+        step_size::Float64, separation::Union{Float64, Nothing} = nothing)
+    if component_type == "pair"
+        println("Вычисление парной компоненты...")
+        calculate_pair_component(model_file, output_file, r_max, step_size)
+        println("Результаты сохранены в $output_file")
+    elseif component_type == "3body"
+        if separation === nothing
+            error("Для вычисления трехтелесной компоненты требуется параметр separation.")
+        end
+        println("Вычисление трехтелесной компоненты...")
+        calculate_3body_component(model_file, output_file, r_max, step_size, separation)
+        println("Результаты сохранены в $output_file")
+    else
+        error("Неверный тип компоненты. Пожалуйста, используйте 'pair' или '3body'.")
+    end
 end
 
 end # module GetPotentialComponents
