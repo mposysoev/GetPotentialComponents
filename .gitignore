@@ -1,8 +1,12 @@
-dev.ipynb
+!example-methanol-model.bson
 *.bson
 *.txt
+*.dat
+*.png
 *.pdb
 .in
 
 trash/
 .vscode
+
+Manifest.toml

@@ -3,23 +3,14 @@ module GetPotentialComponents
 using BSON: @load
 using Flux
 
-export calculate_pair_component, calculate_3body_component
+export calculate_pair_component, calculate_3body_component,
+       calculate_3body_minus_2body_component, main, G2
 
 struct G2
     eta::Float64
     rcutoff::Float64
     rshift::Float64
 end
-
-const G2_FUNCTIONS_LIST = [G2(0.125, 7.0, 0.00),
-    G2(4.000, 7.0, 3.00),
-    G2(4.000, 7.0, 3.50),
-    G2(4.000, 7.0, 4.00),
-    G2(4.000, 7.0, 4.50),
-    G2(4.000, 7.0, 5.00),
-    G2(4.000, 7.0, 5.50),
-    G2(4.000, 7.0, 6.00),
-    G2(4.000, 7.0, 6.50)]
 
 function load_model(file_path::AbstractString)::Flux.Chain
     model = nothing
@@ -104,7 +95,8 @@ function calculate_system_energy_vector(symmFuncMatrix, model)
 end
 
 function calculate_pair_component(
-        model_file::String, output_file::String, r_max::Float64, step_size::Float64)
+        model_file::String, output_file::String, r_max::Float64, step_size::Float64,
+        g2_func_params_list::Vector{G2})
     model = load_model(model_file)
     positions = init_positions_matrix(2)
     distance_matrix = init_distance_matrix(positions)
@@ -119,7 +111,7 @@ function calculate_pair_component(
             distance_matrix[1, 2] += step_size
             distance_matrix[2, 1] += step_size
 
-            g2_matrix = calculate_g2_matrix(distance_matrix, G2_FUNCTIONS_LIST)
+            g2_matrix = calculate_g2_matrix(distance_matrix, g2_func_params_list)
             energy_vector = calculate_system_energy_vector(g2_matrix, model)
 
             total_energy = sum(energy_vector)
@@ -131,12 +123,13 @@ function calculate_pair_component(
 end
 
 function calculate_3body_component(
-        model_file::String, output_file::String, r_max::Float64, step_size::Float64, separation::Float64)
+        model_file::String, output_file::String, r_max::Float64, step_size::Float64, separation::Float64,
+        g2_func_params_list::Vector{G2})
     model = load_model(model_file)
     positions = init_positions_matrix(3)
 
     num_iter = round(Int, 2 * r_max / step_size)
-    initial_x = positions[3, 1] - r_max  # сохранить начальное значение X
+    initial_x = positions[3, 1] - r_max  # save the initial value of X
 
     open(output_file, "w") do io
         println(io,
@@ -144,8 +137,8 @@ function calculate_3body_component(
         println(io, "# Grid (X,Y) from (-$(r_max), +$(r_max)) to (+$(r_max), -$(r_max))")
         println(io, "# X, Y, U(r)")
 
-        # scaning particle
-        positions[3, 1] = initial_x  # установить X coordinate
+        # scanning particle
+        positions[3, 1] = initial_x  # set X coordinate
         positions[3, 2] += r_max  # shift Y coordinate
 
         # separate two main particles
@@ -155,16 +148,16 @@ function calculate_3body_component(
         for y in 1:num_iter
             for x in 1:num_iter
                 distance_matrix = init_distance_matrix(positions)
-                g2_matrix = calculate_g2_matrix(distance_matrix, G2_FUNCTIONS_LIST)
+                g2_matrix = calculate_g2_matrix(distance_matrix, g2_func_params_list)
                 energy_vector = calculate_system_energy_vector(g2_matrix, model)
                 total_energy = sum(energy_vector)
                 println(io, "$(positions[3, 1]), $(positions[3, 2]), $total_energy")
 
-                # change scaning particle position
+                # change scanning particle position
                 positions[3, 1] += step_size
             end
             # return X coordinate
-            positions[3, 1] = initial_x  # восстановить начальное значение X
+            positions[3, 1] = initial_x  # restore the initial value of X
 
             # step for Y coordinate
             positions[3, 2] -= step_size
@@ -172,22 +165,132 @@ function calculate_3body_component(
     end
 end
 
+function calculate_pair_component_once(
+        model::Flux.Chain, distance::Float64, g2_func_params_list::Vector{G2})
+    positions = init_positions_matrix(2)
+
+    positions[1, 1] += distance
+
+    distance_matrix = init_distance_matrix(positions)
+
+    g2_matrix = calculate_g2_matrix(distance_matrix, g2_func_params_list)
+    energy_vector = calculate_system_energy_vector(g2_matrix, model)
+
+    total_energy = sum(energy_vector)
+
+    return total_energy
+end
+
+function calculate_3body_minus_2body_component(
+        model_file::String, output_file::String, r_max::Float64, step_size::Float64, separation::Float64,
+        g2_func_params_list::Vector{G2})
+    model = load_model(model_file)
+    postions_3_particles = init_positions_matrix(3)
+    postions_2_particles_left = init_positions_matrix(2)
+    postions_2_particles_right = init_positions_matrix(2)
+
+    num_iter = round(Int, 2 * r_max / step_size)
+    initial_x = postions_3_particles[3, 1] - r_max  # save the initial value of X
+
+    open(output_file, "w") do io
+        println(io,
+            "# 3-body potential component for $model_file with distance between particles = $(separation) Å")
+        println(io, "# Grid (X,Y) from (-$(r_max), +$(r_max)) to (+$(r_max), -$(r_max))")
+        println(io, "# X, Y, U(r)")
+
+        # scanning particle
+        postions_3_particles[3, 1] = initial_x  # set X coordinate
+        postions_3_particles[3, 2] += r_max  # shift Y coordinate
+
+        postions_2_particles_left[2, 1] = initial_x  # set X coordinate
+        postions_2_particles_left[2, 2] += r_max  # shift Y coordinate
+
+        postions_2_particles_right[2, 1] = initial_x  # set X coordinate
+        postions_2_particles_right[2, 2] += r_max  # shift Y coordinate
+
+        # separate two main particles
+        postions_3_particles[1, 1] -= separation / 2.0
+        postions_3_particles[2, 1] += separation / 2.0
+
+        postions_2_particles_left[1, 1] -= separation / 2.0
+        postions_2_particles_right[1, 1] += separation / 2.0
+
+        for y in 1:num_iter
+            for x in 1:num_iter
+                distance_matrix_3_particles = init_distance_matrix(postions_3_particles)
+                distance_matrix_2_left = init_distance_matrix(postions_2_particles_left)
+                distance_matrix_2_right = init_distance_matrix(postions_2_particles_right)
+
+                g2_matrix_3_particles = calculate_g2_matrix(
+                    distance_matrix_3_particles, g2_func_params_list)
+                g2_matrix_2_left = calculate_g2_matrix(
+                    distance_matrix_2_left, g2_func_params_list)
+                g2_matrix_2_right = calculate_g2_matrix(
+                    distance_matrix_2_right, g2_func_params_list)
+
+                energy_vector_3_particles = calculate_system_energy_vector(
+                    g2_matrix_3_particles, model)
+                energy_vector_2_left = calculate_system_energy_vector(
+                    g2_matrix_2_left, model)
+                energy_vector_2_right = calculate_system_energy_vector(
+                    g2_matrix_2_right, model)
+
+                # Из полной энергии с трёмя частицами,
+                # вычесть энергию системы из двух частиц (сканирующей и статичной левой),
+                # вычесть энергию системы из двух частиц (сканирующей и статичной правой),
+                # вычесть энергию взаимодействия между двумя частицами.
+                total_energy = sum(energy_vector_3_particles) - sum(energy_vector_2_left) -
+                               sum(energy_vector_2_right) - calculate_pair_component_once(
+                    model, separation, g2_func_params_list)
+
+                println(io,
+                    "$(postions_3_particles[3, 1]), $(postions_3_particles[3, 2]), $total_energy")
+
+                # change scanning particle position
+                postions_3_particles[3, 1] += step_size
+                postions_2_particles_left[2, 1] += step_size
+                postions_2_particles_right[2, 1] += step_size
+            end
+            # return X coordinate
+            postions_3_particles[3, 1] = initial_x
+            postions_2_particles_left[2, 1] = initial_x
+            postions_2_particles_right[2, 1] = initial_x
+
+            # step for Y coordinate
+            postions_3_particles[3, 2] -= step_size
+            postions_2_particles_left[2, 2] -= step_size
+            postions_2_particles_right[2, 2] -= step_size
+        end
+    end
+end
+
 function main(
         component_type::String, model_file::String, output_file::String, r_max::Float64,
-        step_size::Float64, separation::Union{Float64, Nothing} = nothing)
+        step_size::Float64, g2_func_params_list::Vector{G2}, separation::Union{
+            Float64, Nothing} = nothing)
     if component_type == "pair"
-        println("Вычисление парной компоненты...")
-        calculate_pair_component(model_file, output_file, r_max, step_size)
-        println("Результаты сохранены в $output_file")
+        println("Calculating pair component...")
+        calculate_pair_component(
+            model_file, output_file, r_max, step_size, g2_func_params_list)
+        println("Results saved in $output_file")
     elseif component_type == "3body"
         if separation === nothing
-            error("Для вычисления трехтелесной компоненты требуется параметр separation.")
+            error("The 'separation' parameter is required for calculating the 3-body component.")
         end
-        println("Вычисление трехтелесной компоненты...")
-        calculate_3body_component(model_file, output_file, r_max, step_size, separation)
-        println("Результаты сохранены в $output_file")
+        println("Calculating 3-body component...")
+        calculate_3body_component(
+            model_file, output_file, r_max, step_size, separation, g2_func_params_list)
+        println("Results saved in $output_file")
+    elseif component_type == "diff"
+        if separation === nothing
+            error("The 'separation' parameter is required for calculating the 3-body component.")
+        end
+        println("Calculating Difference of components...")
+        calculate_3body_minus_2body_component(
+            model_file, output_file, r_max, step_size, separation, g2_func_params_list)
+        println("Results saved in $output_file")
     else
-        error("Неверный тип компоненты. Пожалуйста, используйте 'pair' или '3body'.")
+        error("Invalid component type. Please use 'pair', '3body' of 'diff'.")
     end
 end
 

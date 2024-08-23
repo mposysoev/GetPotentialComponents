@@ -1,7 +1,7 @@
 name = "GetPotentialComponents"
 uuid = "c3b7d97f-d0a5-41b2-99f5-e2f646e58959"
 authors = ["Maksim Posysoev <37895103+mposysoev@users.noreply.github.com>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
